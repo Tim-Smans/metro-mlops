@@ -1,0 +1,12 @@
+# Only change these values if you know what you are doing.
+kubeflow:
+  pipelines_version: "2.4.0"
+
+minio:
+  buckets:
+    - "ml-models" # DO NOT REMOVE THIS ONE
+    - "ml-data"
+
+monitoring:
+  grafana_url: "http://localhost/grafana/"
+  prometheus_url: "http://localhost/prometheus"

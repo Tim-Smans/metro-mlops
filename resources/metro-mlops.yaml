@@ -1,0 +1,256 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: mlops-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "*"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: kubeflow-vs
+  namespace: kubeflow
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/mlops-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /pipeline
+    route:
+    - destination:
+        host: ml-pipeline-ui.kubeflow.svc.cluster.local
+        port:
+          number: 80
+  - match:
+    - uri:
+        prefix: /ml_metadata
+    route:
+    - destination:
+        host: metadata-envoy-service.kubeflow.svc.cluster.local
+        port:
+          number: 9090
+    headers:
+      request:
+        set:
+          Host: metadata-envoy-service.kubeflow.svc.cluster.local
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: minio-vs
+  namespace: kubeflow
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/mlops-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: minio-service.kubeflow.svc.cluster.local 
+        port:
+          number: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+      - name: mlflow
+        image: ghcr.io/mlflow/mlflow:v2.20.3
+        command:
+          - "mlflow"
+          - "server"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "5000"
+          - "--backend-store-uri"
+          - "sqlite:///mlflow.db"
+          - "--default-artifact-root"
+          - "s3://test/"
+        env:
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://istio-ingressgateway.istio-system.svc.cluster.local"  # Jouw MinIO server
+        - name: AWS_ACCESS_KEY_ID
+          value: "minio"
+        - name: AWS_SECRET_ACCESS_KEY
+          value: "minio123"
+        ports:
+        - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-service
+  namespace: mlflow
+spec:
+  selector:
+    app: mlflow
+  ports:
+  - protocol: TCP
+    port: 5000
+    targetPort: 5000
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: mlflow
+  namespace: mlflow
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - istio-system/mlops-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /mlflow
+      rewrite:
+        uri: "/"
+      route:
+        - destination:
+            host: mlflow-service.mlflow.svc.cluster.local
+            port:
+              number: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow-model-deployment
+  namespace: kubeflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow-model
+  template:
+    metadata:
+      labels:
+        app: mlflow-model
+    spec:
+      containers:
+      - name: mlflow-model
+        image: timsmans/ml-serving:latest
+        ports:
+        - containerPort: 5001
+        env:
+        - name: MLFLOW_S3_ENDPOINT_URL
+          value: "http://istio-ingressgateway.istio-system.svc.cluster.local"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlpipeline-minio-artifact
+              key: accesskey
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlpipeline-minio-artifact
+              key: secretkey
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow-model-service
+  namespace: kubeflow
+spec:
+  selector:
+    app: mlflow-model
+  ports:
+    - protocol: TCP
+      port: 5001  # ✅ External port
+      targetPort: 5001  # ✅ MLflow internal port
+  type: ClusterIP
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: mlflow-model-vs
+  namespace: kubeflow
+spec:
+  hosts:
+    - "mlflow-model.local"  # Use a dummy host, keep this in mind when accessing the api
+  gateways:
+    - istio-system/mlops-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /mlflow-model/  # Trailing slash matters!
+      rewrite:
+        uri: /  # Strip "/mlflow-model/" entirely
+      route:
+        - destination:
+            host: mlflow-model-service.kubeflow.svc.cluster.local
+            port:
+              number: 5001
+    - match:
+        - uri:
+            exact: /mlflow-model  # Handle requests without trailing slash
+      redirect:
+        uri: /mlflow-model/  # Force a redirect to add the trailing slash
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/mlops-gateway
+  http:
+  - match:
+      - uri:
+          prefix: "/grafana"
+    route:
+    - destination:
+        host: grafana.monitoring.svc.cluster.local
+        port:
+          number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/mlops-gateway
+  http:
+  - match:
+      - uri:
+          prefix: "/prometheus"
+    route:
+    - destination:
+        host: prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local
+        port:
+          number: 9090

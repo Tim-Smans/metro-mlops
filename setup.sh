@@ -1,0 +1,118 @@
+#!/bin/bash
+
+set -e
+
+
+if ! command -v yq &> /dev/null
+then
+    echo "🔍 yq not found, installing temporarily..."
+    wget -qO yq "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64"
+    chmod +x yq
+fi
+
+#Reading Config
+CONFIG_FILE="config.yaml"
+
+
+PIPELINES_VERSION=$(./yq  '.kubeflow.pipelines_version' $CONFIG_FILE)
+BUCKETS=$(./yq '.minio.buckets[]' $CONFIG_FILE)
+GRAFANA_URL=$(./yq '.monitoring.grafana_url' $CONFIG_FILE)
+PROMETHEUS_URL=$(./yq '.monitoring.prometheus_url' $CONFIG_FILE)
+
+
+
+echo "📌 Installing Istio..."
+curl -L https://istio.io/downloadIstio | sh -
+cd istio-1.25.0
+export PATH=$PWD/bin:$PATH
+echo y | istioctl install
+
+cd ..
+
+echo "📌 Creating namespaces..."
+kubectl apply -f resources/namespaces.yaml
+
+
+echo "📌 Installing Kubeflow Pipelines..."
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=$PIPELINE_VERSION"
+kubectl wait --for condition=established --timeout=60s crd/applications.app.k8s.io
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=$PIPELINE_VERSION"
+
+
+echo "⏳ Waiting for kubeflow pods to be ready... (this may take a while)"
+kubectl wait --for=condition=available deployment/ml-pipeline-ui -n kubeflow --timeout=500s
+kubectl wait --for=condition=available deployment/ml-pipeline -n kubeflow --timeout=300s
+kubectl wait --for=condition=available deployment/minio -n kubeflow --timeout=180s
+
+echo "📌 Creating Minio buckets..."
+curl https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
+chmod +x mc
+sudo mv mc /usr/local/bin/mc
+
+echo "📌 MinIO buckets aanmaken..."
+MINIO_ACCESS_KEY="minio"
+MINIO_SECRET_KEY="minio123"
+MINIO_ENDPOINT="http://localhost:9000"
+
+# Maak tijdelijke port-forward om MinIO lokaal bereikbaar te maken
+kubectl port-forward svc/minio-service -n kubeflow 9000:9000 &
+MINIO_PORT_FORWARD_PID=$!
+
+sleep 10
+
+# Installeer minio-cli (mc) indien nodig
+wget https://dl.min.io/client/mc/release/linux-amd64/mc
+chmod +x mc
+sudo mv mc /usr/local/bin/
+
+# Verbind mc met je MinIO-instance
+mc alias set myminio http://localhost:9000 minio minio123
+
+echo "📌 Buckets aanmaken op MinIO..."
+
+for BUCKET in $BUCKETS
+do
+    echo "🪣 Creating bucket: $BUCKET"
+    mc mb myminio/$BUCKET || echo "⚠️ Bucket $BUCKET already exists, skipping..."
+done
+
+
+# Stop port-forward
+kill $MINIO_PORT_FORWARD_PID
+
+
+echo "📌 Installing Prometheus and Grafana..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+helm upgrade --install grafana grafana/grafana \
+  --namespace monitoring \
+  --set adminPassword='admin' \
+  --set env.GF_SERVER_ROOT_URL="$GRAFANA_URL" \
+  --set env.GF_SERVER_SERVE_FROM_SUB_PATH="true" \
+
+
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set prometheus.prometheusSpec.routePrefix="/prometheus" \
+  --set prometheus.prometheusSpec.externalUrl="$PROMETHEUS_URL"
+
+echo "⏳ Waiting for Prometheus en Grafana to be ready..."
+kubectl wait --for=condition=ready pods --all -n monitoring --timeout=300s
+echo "✅ Grafana password has been set to 'admin'!"
+
+
+echo "📌 Applying Kubernetes-resources..."
+kubectl apply -f resources/metro-mlops.yaml
+
+
+echo "⏳ Waiting for MLflow to be ready..."
+kubectl wait --for=condition=available deployment/mlflow -n mlflow --timeout=180s
+
+
+echo "📌 Activating Istio-injection..."
+kubectl label namespace kubeflow istio-injection=enabled --overwrite
+kubectl label namespace mlflow istio-injection=enabled --overwrite
+kubectl label namespace monitoring istio-injection=enabled --overwrite
+
+echo "✅ Setup complete!"
