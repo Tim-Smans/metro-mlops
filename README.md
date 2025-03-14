@@ -1,7 +1,7 @@
 # MLOps Architecture Setup Script
 This script automates the setup of a complete MLOps architecture including Kubeflow Pipelines, Istio, MLflow, MinIO, Prometheus, and Grafana on your local Kubernetes cluster (Minikube).
 
-[]("https://i.imgur.com/EOMytoF.png")
+![]("https://i.imgur.com/EOMytoF.png")
 
 ---
 
