@@ -9,4 +9,5 @@ minio:
 
 monitoring:
   grafana_url: "http://localhost/grafana/"
+  grafana_password: "admin"
   prometheus_url: "http://localhost/prometheus"

@@ -17,6 +17,7 @@ CONFIG_FILE="config.yaml"
 PIPELINES_VERSION=$(./yq  '.kubeflow.pipelines_version' $CONFIG_FILE)
 BUCKETS=$(./yq '.minio.buckets[]' $CONFIG_FILE)
 GRAFANA_URL=$(./yq '.monitoring.grafana_url' $CONFIG_FILE)
+GRAFANA_PASSWORD=$(./yq '.monitoring.grafana_password' $CONFIG_FILE)
 PROMETHEUS_URL=$(./yq '.monitoring.prometheus_url' $CONFIG_FILE)
 
 
@@ -87,7 +88,7 @@ helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
 helm upgrade --install grafana grafana/grafana \
   --namespace monitoring \
-  --set adminPassword='admin' \
+  --set adminPassword="$GRAFANA_PASSWORD" \
   --set env.GF_SERVER_ROOT_URL="$GRAFANA_URL" \
   --set env.GF_SERVER_SERVE_FROM_SUB_PATH="true" \
 
