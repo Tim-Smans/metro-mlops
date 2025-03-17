@@ -46,6 +46,7 @@ Step 3: Run the script
 
 While running the script:
 1. Installing Kubeflow is going to take a while. If it times out for you, change the timeout limit in the `config.yaml`
+2. When it is creating the minio buckets you might need to input your `sudo password`.
 
 
 The script will automatically:

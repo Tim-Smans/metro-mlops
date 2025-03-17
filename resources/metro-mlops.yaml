@@ -94,7 +94,7 @@ spec:
           - "--backend-store-uri"
           - "sqlite:///mlflow.db"
           - "--default-artifact-root"
-          - "s3://test/"
+          - "s3://ml-models/"
         env:
         - name: MLFLOW_S3_ENDPOINT_URL
           value: "http://istio-ingressgateway.istio-system.svc.cluster.local"  # Jouw MinIO server
