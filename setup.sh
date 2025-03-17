@@ -100,7 +100,7 @@ helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
 
 echo "⏳ Waiting for Prometheus en Grafana to be ready..."
 kubectl wait --for=condition=ready pods --all -n monitoring --timeout=300s
-echo "✅ Grafana password has been set to 'admin'!"
+echo "✅ Grafana password has been set to '$GRAFANA_PASSWORD'!"
 
 
 echo "📌 Applying Kubernetes-resources..."
