@@ -65,7 +65,7 @@ kubectl wait --for=condition=available deployment/minio -n kubeflow --timeout=18
 # It is installed under the kubeflow namespace. 
 # Here we will create some buckets inside of minio, this is mainly done because
 # the bucket ml-models is needed for our ml-flow serving to work. 
-# For more information about this check the example-guide.md on the github repo.
+# For more information about this check the example-guide.md on the github repo. (COMMING SOON)
 #
 echo "📌 Creating Minio buckets..."
 curl https://dl.min.io/client/mc/release/linux-amd64/mc -o mc
