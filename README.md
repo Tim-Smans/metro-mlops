@@ -41,7 +41,7 @@ chmod +x setup.sh
 
 Step 3: Run the script
 `
-./setup_mlops.sh
+./setup.sh
 `
 
 While running the script:

@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -e
 #
 # Yq is used to read the values from the configuration file. 
@@ -86,10 +87,9 @@ mc alias set myminio http://localhost:9000 minio minio123
 
 echo "📌 Buckets aanmaken op MinIO..."
 
-for BUCKET in $BUCKETS
-do
+for BUCKET in $BUCKETS; do
     echo "🪣 Creating bucket: $BUCKET"
-    mc mb myminio/$BUCKET || echo "⚠️ Bucket $BUCKET already exists, skipping..."
+    mc mb "myminio/$BUCKET" || echo "⚠️ Bucket $BUCKET already exists, skipping..."
 done
 
 
